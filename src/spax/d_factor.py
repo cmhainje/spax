@@ -5,7 +5,7 @@ from numpy.polynomial.legendre import leggauss
 from .sphgeo import angular_separation, offset_l_b
 
 DFAC_DEGREE = 40
-DFAC_x, DFAC_x = tuple(map(jnp.asarray, leggauss(DFAC_DEGREE)))
+DFAC_x, DFAC_w = tuple(map(jnp.asarray, leggauss(DFAC_DEGREE)))
 DFAC_tcut = 40  # corresponds to a cut at s_max/R (or |s_0/R|) < 1e17
 
 
@@ -26,7 +26,7 @@ def D_factor(density_fn, psi, dist, s_max: float = 1e5):
     half = 0.5 * (t_hi - t_lo)
 
     t_i = half[..., None] * DFAC_x + mid[..., None]
-    w_i = half[..., None] * DFAC_x
+    w_i = half[..., None] * DFAC_w
     r_i = R[..., None] * jnp.cosh(t_i)
 
     return jnp.sum(w_i * r_i * density_fn(r_i), axis=-1)
