@@ -10,8 +10,12 @@ dependencies = [
     "matplotlib>=3.11.1",
     "numpy>=2.5.2",
     "scipy>=1.18.1",
+    "talltable",
     "tqdm>=4.70.0",
 ]
+
+[tool.uv.sources]
+talltable = { path = "../talltable/packages/core", editable = true }
 
 [dependency-groups]
 dev = [
