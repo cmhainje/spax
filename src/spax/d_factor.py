@@ -41,6 +41,37 @@ def D_factor_factory(
     rho_s,
     r_s,
 ):
+    """Makes a JAX jitted and vmapped wrapper of `D_factor` that automatically
+    performs the coordinate conversions for arbitrary (l, b) into the frame
+    centered at (l0, b0).
+
+    Arguments:
+        l0: float [rad]
+            origin longitude of offset frame
+        b0: float [rad]
+            origin latitude of offset frame
+        l_halo: float [rad]
+            longitude of halo center
+        b_halo: float [rad]
+            latitude of halo center
+        dist: float [kpc]
+            distance (from Sun) to halo center
+        rho_s: float [M_sun kpc^-3]
+            NFW scale density of halo
+        r_s: float [kpc]
+            NFW scale radius of halo
+
+    Return:
+        function with the following signature
+        Arguments:
+            l: float/array [rad]
+                longitude
+            b: float/array [rad]
+                latitude
+        Return:
+            D_factor: float/array [M_sun kpc^-2]
+                halo column density along line of sight
+    """
     def rho(r):
         return density_NFW(r, rho_s, r_s)
 
