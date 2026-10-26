@@ -17,6 +17,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from astropy.coordinates import SkyCoord
+from numpy.lib.stride_tricks import sliding_window_view
 from talltable.constants import HP_HIGH_LEVEL
 from talltable.partition import find_partitions_disc
 from talltable.paths import PIXEL_DB_PATH, WAVES_DB_PATH
@@ -60,8 +61,8 @@ def load_spec_channels():
 
 HBAR_EV_S = 6.582119569e-16  # https://en.wikipedia.org/wiki/Planck_constant
 SPEED_OF_LIGHT_CGS = 2.99792458e10  # https://en.wikipedia.org/wiki/Speed_of_light
-M_SUN_G = 1.988409870698051e33  # IAU 2015 nominal solar mass (= astropy.constants.M_sun)
-KPC_CM = 3.0856775814913673e21  # IAU 2012/2015: pc = (648000/pi) au, au = 1.495978707e13 cm
+M_SUN_G = 1.988409870698051e33  # IAU 2015 nominal solar mass
+KPC_CM = 3.0856775814913673e21  # IAU 2012/2015
 MJY_CGS = 1e-17  # 1 Jy = 1e-23 erg s^-1 cm^-2 Hz^-1 (definition)
 
 # I_nu = Gamma/(4 pi) * c^2 * D * phi_nu: each decay releases the full rest energy m_a c^2.
@@ -81,6 +82,7 @@ def g_agg_from_gamma(gamma, m_a):
     """
     return 1e9 * np.sqrt(64 * np.pi * HBAR_EV_S * gamma / m_a**3)
 
+
 HALO_NAME = "MW"
 HALO = read_halo(HALO_NAME)
 DFAC = D_factor_factory(
@@ -92,10 +94,13 @@ SPEC_CHANNELS = load_spec_channels()
 
 OUTLIER_BITFLAG = 1 << 19
 KNOWN_SRC_BITFLAG = 1 << 21
-ALLOWED_BITS = OUTLIER_BITFLAG | KNOWN_SRC_BITFLAG
+ALLOWED_BITS = 0  # OUTLIER_BITFLAG | KNOWN_SRC_BITFLAG
 BIN_LEVEL = 15
 POLYNOMIAL_DEGREE = 4
 WINDOW_K = 5
+
+C1_WINDOW = 9
+C1_DDOF = 1
 
 
 def waveid_to_wave_index(wid):
@@ -236,17 +241,35 @@ def process_bin(lam_a, window_hw, a, d, variance, lam_j):
     x_j = (lam_j - lam_a) / window_hw
 
     M = np.stack([x_j**p for p in range(POLYNOMIAL_DEGREE + 1)], axis=-1)
-    w = 1.0 / variance
 
+    # very direct version (bad idea for numerics)
+    # w = 1.0 / variance
     # F = M.T @ (w[:, None] * M)
     # cont = np.linalg.solve(F, M.T @ (w * a))
     # a_proj = a - M @ cont
-
     # A = a_proj.T @ (w * a_proj)
     # B = a_proj.T @ (w * d)
 
-    # Claude's suggested alternative to the above
-    sw = np.sqrt(w)
+    # CORRECTION 1: fit continuum, then rescale variances to local scatter if necessary
+    sw = np.sqrt(1.0 / variance)
+    U, s, _ = np.linalg.svd(sw[:, None] * M, full_matrices=False)
+    U = U[:, s > s[0] * 1e-10]  # numerical rank, not a physics cut
+    d_t = sw * d
+    r = (d_t - U @ (U.T @ d_t)) / sw  # residual of the continuum-only fit
+    if len(r) >= C1_WINDOW:
+        sort_idx = np.argsort(lam_j)
+        sort_inv = np.argsort(sort_idx)
+        rsig = np.zeros_like(r)
+        hw = C1_WINDOW // 2
+        rsig[hw:-hw] = sliding_window_view(r[sort_idx], C1_WINDOW).std(
+            axis=1, ddof=C1_DDOF
+        )
+        rsig[:hw] = rsig[hw]  # assign edges the nearest full window's std
+        rsig[-hw:] = rsig[-hw - 1]
+        with np.errstate(divide="ignore"):
+            sw = np.minimum(sw, 1.0 / rsig[sort_inv])
+
+    # now do the fit and calculate the chi-square quadratic coefficients
     U, s, _ = np.linalg.svd(sw[:, None] * M, full_matrices=False)
     U = U[:, s > s[0] * 1e-10]  # numerical rank, not a physics cut
     a_t, d_t = sw * a, sw * d
@@ -314,10 +337,10 @@ def main():
     parser.add_argument("out_dir", type=Path)
     # striding: task i of n handles partitions[i::n]. under `srun`, slurm sets these
     parser.add_argument(
-        "--task-id", type=int, default=int(os.environ.get("SLURM_PROCID", 0))
+        "--task-id", type=int, default=int(os.environ.get("SLURM_PROCID", "0"))
     )
     parser.add_argument(
-        "--num-tasks", type=int, default=int(os.environ.get("SLURM_NTASKS", 1))
+        "--num-tasks", type=int, default=int(os.environ.get("SLURM_NTASKS", "1"))
     )
     args = parser.parse_args()
     assert 0 <= args.task_id < args.num_tasks
@@ -328,7 +351,10 @@ def main():
     nep = nep.transform_to("icrs")
     nep_ra = nep.ra.to("deg").value  # type: ignore
     nep_dec = nep.dec.to("deg").value  # type: ignore
-    partitions = sorted(find_partitions_disc(nep_ra, nep_dec, radius_deg))
+    # talltable may return numpy ints, which json can't serialize
+    partitions = sorted(
+        int(p) for p in find_partitions_disc(nep_ra, nep_dec, radius_deg)
+    )
 
     # every (channel wavelength, detector covering it) pair
     masses = []
@@ -358,6 +384,11 @@ def main():
         "masses": [
             {"lam_idx": i, "wavelength_um": wl, "det": det} for i, wl, det in masses
         ],
+        "pinetti_c1": {
+            "window": C1_WINDOW,
+            "ddof": C1_DDOF,
+            "edges": "nearest_full_window",
+        },
     }
     config = json.loads(json.dumps(config))  # normalize to what a reload gives back
 
@@ -389,24 +420,15 @@ def main():
         elapsed = time.time() - t_start
         eta = elapsed / (k + 1) * (len(todo) - k - 1)
         max_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        max_rss_gb = max_rss / (2**30 if sys.platform == "darwin" else 2**20)  # B vs KiB
+        max_rss_gb = max_rss / (
+            2**30 if sys.platform == "darwin" else 2**20
+        )  # B vs KiB
         print(
             f"part={part_num}: {n_rows} rows in {time.time() - t0:.0f} s, "
             f"peak memory {max_rss_gb:.1f} GB ({k + 1}/{len(todo)}, ETA {eta / 60:.0f} min)",
             flush=True,
         )
 
-    # A = sum(res["A"] for res in results.values())
-    # B = sum(res["B"] for res in results.values())
-
-    # G_hat = B / A
-    # sigma_Ghat = 1.0 / np.sqrt(A)
-    # CI_lo = G_hat - 1.96 * sigma_Ghat
-    # CI_hi = G_hat + 1.96 * sigma_Ghat
-
-    # print(f"m_a = {m_a:.3f} eV (lam_a = {lam_a:.3f} um)")
-    # print(f"  max likelihood value of Gamma: {G_hat:.3e}")
-    # print(f"  95% confidence interval: {CI_lo:.3e}, {CI_hi:.3e}")
 
 if __name__ == "__main__":
     main()
