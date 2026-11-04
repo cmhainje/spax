@@ -1,6 +1,7 @@
 The following is a list of paths from the `Talltable' refactored-SPHEREx database.
 An individual file can be downloaded at
     https://sdsc-users.flatironinstitute.org/~chainje/talltable/${path}
+Please note that the full filelist totals 18.1 TB.
 See https://connorhainje.com/talltable for additional information.
 
 parts.txt
