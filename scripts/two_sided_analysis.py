@@ -574,7 +574,7 @@ m_a = m_a_from_lam_a(WAVES[li, sub])
 _, A_raw, _ = combine(res, "A_raw", "B_raw")
 
 # sensitivity forecast for the analyzed field(s), as Regis+2025 but from the measured noise
-# (scripts/claude/measured_forecast.py): A = sum a^2 / var over the rows the runs use, no continuum,
+# (scripts/measured_forecast.py): A = sum a^2 / var over the rows the runs use, no continuum,
 # no Correction 1. A grows with the data, so it is scaled from what we have to the 25 month mission
 # (Explanatory Supplement v2.0, surveys 1-4). same threshold as the Cramer-Rao curve (2.71)
 T_MISSION = 25  # months
