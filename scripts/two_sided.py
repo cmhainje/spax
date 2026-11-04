@@ -1,5 +1,5 @@
 """
-compute constaints using the two-sided statistic
+compute constraints using the two-sided statistic
 """
 
 import argparse
