@@ -5,7 +5,7 @@
 ## authors
 
 - Connor Hainje, NYU
-- Elena Pinetti, ?
+- Elena Pinetti, CCA
 - David W Hogg, NYU+
 
 ## data
