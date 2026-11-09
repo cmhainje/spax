@@ -346,6 +346,7 @@ def plot_coverage(rough=False, ghost=None):
         orientation="horizontal",
         label=unit,
         extend="neither" if rough else "min",
+        extendrect=True,  # the "min" end (the floor color) as a square cap, not a triangle
     )
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG_DIR / f"{out_name}.png", dpi=200)
@@ -435,19 +436,21 @@ def plot_spectrum():
             ms=2,
             lw=0.5,
             color=f"C{det - 1}",
-            label=f"D{det}",
         )
         # ~29k points and error bars: raster them in the PDF (it otherwise renders slowly);
         # axes, text, and the highlighted measurements below stay vector
         for artist in eb.get_children():
             artist.set_rasterized(True)
+        # the detector's name in white on its own crowd of error bars, mid-band (log lambda)
+        lam = rows["wavelength"][s]
+        ax.text(np.sqrt(lam.min() * lam.max()), np.median(d[s]), f"D{det}", color="white",
+                ha="center", va="center", fontsize="small", zorder=4)
     # log in lambda; symlog in flux - zodi, which is <= 0 for 11% of the NEP bin's measurements
     # (~27% in D5, D6), so a log axis would drop them
     ax.set_xscale("log")
     ax.set_xticks([0.75, 1, 1.5, 2, 3, 4, 5], ["0.75", "1", "1.5", "2", "3", "4", "5"])
     ax.set_yscale("symlog", linthresh=LINTHRESH)
     ax.axhline(0, color="0.6", lw=0.5, zorder=0)
-    ax.set_ylim(top=20)  # room for the legend
     # the bin's center [deg], for the title
     ra, dec = healpy.pix2ang(2**BIN_LEVEL, hpbin, nest=True, lonlat=True)
     ax.set_xlabel(r"$\lambda$ [$\mu$m]")
@@ -456,7 +459,6 @@ def plot_spectrum():
         rf"RA = {ra:.3f}$^\circ$, Dec = {dec:+.3f}$^\circ$",
         fontsize="medium",
     )
-    ax.legend(fontsize="small", ncols=6, loc="upper right", frameon=False, columnspacing=1, handletextpad=0.2)
 
     for j, lam in enumerate(HIGHLIGHT):
         i = np.argmin(np.abs(rows["wavelength"] - lam))

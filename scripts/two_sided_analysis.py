@@ -149,10 +149,10 @@ def set_ticks(axis, ticks):
     axis.set_minor_formatter(NullFormatter())
 
 
-def mass_axis(ax):
+def mass_axis(ax, label=r"$m_a$"):
     """log m_a x-axis with wavelength on top (lambda = 4 pi hbar c / m_a is its own inverse)"""
     ax.set_xscale("log")
-    ax.set_xlabel(r"$m_a$ [eV]")
+    ax.set_xlabel(label + " [eV]")
     ax.tick_params(axis="x", which="both", top=False)  # the top axis is wavelength's alone
 
     def convert(x):
@@ -688,8 +688,8 @@ FORECAST = "Sensitivity forecast (25 mo.)"
 CR_BOUND = "Cram\\'er--Rao bound (16.5 mo.)"
 STYLE = {  # label: (color, lw, ls)
     THIS_WORK: ("k", 1.1, "-"),
-    FORECAST: ("C1", 1, "--"),
-    CR_BOUND: ("C2", 0.9, "-"),
+    FORECAST: ("C1", 1, "-."),
+    CR_BOUND: ("C2", 0.9, "--"),  # dashes: dash-dot is hard to read on its jitter
     "Existing limits": ("C0", None, None),
     "QCD axion": ("#DDB945", None, None),  # Purdue "Field", purdue.edu/brand-studio/brand/visual-identity
     "Globular clusters": ("C5", 1.2, ":"),
@@ -868,7 +868,7 @@ def plot_constraint_tau():
     lifetime tau"""
     fig, ax = plt.subplots(figsize=FIG_SIZE)
     draw_constraint(ax, he_leak=True, detectors=True, tau=True)
-    mass_axis(ax)
+    mass_axis(ax, label=r"$m$")  # the lifetime of any particle decaying to two photons
     fig.tight_layout()
     label_constraint(ax, tau=True)
     save(fig, "constraint-tau-labeled-he-leak-detectors")
@@ -885,3 +885,33 @@ plot_constraint(inline=True)
 plot_constraint(inline=True, he_leak=True)
 plot_constraint(inline=True, he_leak=True, detectors=True)
 plot_constraint_tau()
+
+
+def plot_s3():
+    """Correction III's factor S_III (K = 5, joint over the runs) by mass, with wavelength on top,
+    one curve per detector, as stairs (one step per mass) like the limit plot"""
+    (r,) = res.values()
+    li, sub, det = r["keys"]
+    m = m_a_from_lam_a(WAVES[li, sub])
+    fig, ax = plt.subplots(figsize=(FIG_SIZE[0], 2.2))
+    for d in np.unique(det):
+        mask = det == d
+        o = np.argsort(m[mask])
+        m_d, s_d = m[mask][o], r["S3"][mask][o]
+        ax.stairs(s_d, bin_edges(m_d), baseline=None, color=f"C{d - 1}", lw=0.9)
+        # the label above the data in the middle third of the detector's range (log m)
+        mid = np.sqrt(m_d[0] * m_d[-1])
+        third = np.abs(np.log(m_d / mid)) < np.log(m_d[-1] / m_d[0]) / 6
+        ax.annotate(f"D{d}", (mid, s_d[third].max()), xytext=(0, 3), textcoords="offset points",
+                    ha="center", va="bottom", fontsize="small", color=f"C{d - 1}")
+    ax.set_yscale("log")
+    ax.set_xlim(bin_edges(np.sort(m))[[0, -1]])
+    ax.set_ylim(top=3e4)  # room for D1's label
+    mass_axis(ax)
+    ax.set_ylabel(r"$S_\mathrm{III}$")
+    fig.tight_layout()
+    save(fig, "s3")
+    print(f"S_III: median {np.median(r['S3']):.0f}, range {r['S3'].min():.0f}-{r['S3'].max():.0f}")
+
+
+plot_s3()
